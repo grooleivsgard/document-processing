@@ -20,7 +20,7 @@ random.seed(123)
 # nltk.download('punkt')
 
 # DELETE ALL FILES -- for testing
-def delete_all_files(self):
+def delete_all_files():
     files_in_directory = os.listdir()
 
     # Filter the list to include only those named 'paragraph_x.txt'
@@ -276,21 +276,22 @@ def main():
     query2 = "How taxes influence Economics?"
     # processor = DataProcessing(input_filename)
 
-    # ONLY FOR TEST - Remove all generated files - just for testing
-    # processor.delete_all_files()
+    # ONLY FOR TESTING - Remove all generated files
+    # delete_all_files()
 
     # STEP 1 - Partition all paragraphs into documents
     # partition(input_filename)
 
     # STEP 2 - Filter collection
-    processed_collection = preprocess_collection(target_word, directory_path)
-    processed_query = preprocess_query(query2)
+    # processed_collection = preprocess_collection(target_word, directory_path)
+    # processed_query = preprocess_query(query2)
 
     # STEP 3 - Tokenize
-    tokenized_collection = tokenize(processed_collection)
-    tokenized_query = tokenize_doc(processed_query)
+    # tokenized_collection = tokenize(processed_collection)
+    # tokenized_query = tokenize_doc(processed_query)
 
-    similarity(tokenized_query, tokenized_collection)
+    # STEP 4 - Run similarity check
+    # similarity(tokenized_query, tokenized_collection)
 
 
 if __name__ == "__main__":
