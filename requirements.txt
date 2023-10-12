@@ -1,0 +1,2 @@
+pip3 install gensim
+pip3 install nltk
