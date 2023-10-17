@@ -1,12 +1,10 @@
 import random
 import codecs
 import os
+import re
+from nltk.tokenize import RegexpTokenizer
 import nltk
 import gensim
-import logging
-from nltk.stem import PorterStemmer
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
 from nltk.probability import FreqDist
 from gensim import models
 from gensim import similarities
@@ -15,120 +13,74 @@ from gensim import similarities
 random.seed(123)
 
 
-# stopwords = nltk.corpus.stopwords.words('english')
-# nltk.download('stopwords')
-# nltk.download('punkt')
-
-# DELETE ALL FILES -- for testing
-def delete_all_files():
-    files_in_directory = os.listdir()
-
-    # Filter the list to include only those named 'paragraph_x.txt'
-    filtered_files = [file for file in files_in_directory if "paragraph_" in file and file.endswith(".txt")]
-
-    # Delete each file
-    for file in filtered_files:
-        os.remove(file)
-
-    print(f"Removed: {len(files_in_directory)}")
-
-
 # ----- PART 1: Data loading and preprocessing ------
-
 # ---- Partition document collection
-
 def partition(input_file):
     # 1.1 - open and load utf-8 encoded file
     with codecs.open(input_file, "r", "utf-8") as file:
-        lines = file.readlines()
+        lines = file.read()
+        # 1.2 - Partition file into seperate paragraphs.
+        paragraphs = re.split('\n\s*\n', lines)
 
-        chunks = []
-        paragraph = []
-        # 1.2 - Partition file into seperate paragraphs. Each paragraph will be a seperate document.
-        for line in lines:
-            line = line.strip()
-            if line:  # if the line is not empty, add to current paragraph
-                paragraph.append(line)
-            else:  # if the line is empty and there's an existing paragraph, end the current paragraph
-                if paragraph:
-                    chunks.append(' '.join(paragraph))
-                    paragraph = []
-        # Add the last paragraph if the file doesn't end with an empty line
-        if paragraph:
-            chunks.append(' '.join(paragraph))
-
-    for index, paragraph in enumerate(chunks, start=1):
-        output_filename = f"paragraph_{index}.txt"
-        with codecs.open(output_filename, 'w', "utf-8") as out_file:
-            out_file.write(paragraph)
-
-    print(f"Partitioned {len(chunks)} into seperate files.")
+    return paragraphs
 
 
-def preprocess_collection(target_word, directory_path):
-    files_in_directory = os.listdir()
-    collection = [f for f in files_in_directory if
-                  os.path.isfile(os.path.join(directory_path, f)) and f.startswith("paragraph_") and f.endswith(
-                      ".txt")]
+def preprocess_collection(target_word, paragraphs):
+    # 1.3 - Only add paragraphs that does not contain the target word
+    filtered_paragraphs = list(filter(lambda x: target_word.lower() not in x.lower(), paragraphs))
 
-    # 1.3 - Remove paragraph (document) if it contains target word
-    for file in collection:
-        with open(os.path.join(directory_path, file), 'r', encoding='utf-8') as f:
-            content = f.read()
-            if target_word in content:
-                os.remove(os.path.join(directory_path, file))
-
-    return collection
+    return filtered_paragraphs
 
 
 # ---- Tokenize document collection
-def tokenize(collection):
-    processed_files = []
-
+def tokenize_text(text):
     # Initialize FreqDist
     fdist = FreqDist()
+    ps = nltk.stem.PorterStemmer()
+    stemmed_and_tokenized = []
 
-    # Read files
-    for file in collection:
-        tokenized_file = tokenize_doc(file)
+    # 1.5 - RegExp used to remove punctuation during tokenization
+    tokenizer = RegexpTokenizer(r'\w+')
+    # 1.5 - Make all paragraphs and target word lowercase
+    paragraphs_lowerCase = [s.lower() for s in text]
 
-        # 1.7 - Add processed tokens to list and update fdist
-        fdist.update(tokenized_file)
-        processed_files.append(tokenized_file)
+    # 1.4 - Tokenize paragraphs
+    for paragraph in paragraphs_lowerCase:
+        tokenized_paragraph = tokenizer.tokenize(paragraph)
+        # 1.6 - Stem words
+        stemmed_paragraph = [ps.stem(token) for token in tokenized_paragraph]
+        stemmed_and_tokenized.append(stemmed_paragraph)
+        # 1.7 - Update FreqDist
+        fdist.update(stemmed_paragraph)
 
-    return processed_files
-
-
-def tokenize_doc(file):
-    # 4.1 - Apply transformations to query
-    punctuation = [',', '.', ';', ':', '?', '!', '(', ')', '[', ']', '{', '}', '"', "'", "’"]
-
-    with open(file, 'r', encoding='utf-8') as f:
-        # 1.5 - Convert to lower case
-        content = f.read().lower()
-
-        # 1.4 - Tokenize words
-        tokens = nltk.word_tokenize(content)
-
-        # 1.6 - Stem tokens and remove punctuation (1.5)
-        stemmer = nltk.stem.PorterStemmer()
-        stemmed_file = [stemmer.stem(word) for word in tokens if
-                        word not in punctuation]
-        tokenized_doc = stemmed_file
-
-        return tokenized_doc
+    return stemmed_and_tokenized
 
 
 # ----- PART 2: Dictionary building ------
-def to_bow(processed_files, dictionary):
+
+def retrieve_stopwords():
+    # File downloaded from TextFixer: https://www.textfixer.com/tutorials/common-english-words.php
+    file = open('./common-english-words.txt', 'r')
+    stopwords = []
+    for rows in file:
+        row = rows.rstrip().split(',')
+        stopwords += row
+    return stopwords
+
+
+def to_bow(tokenized_paragraphs, dictionary):
     # 2.2 - Map paragraphs into Bags-of-Words
-    bow_corpus = [dictionary.doc2bow(token, allow_update=True) for token in processed_files]
+    bow_corpus = []
+    for token in tokenized_paragraphs:
+        vector = dictionary.doc2bow(token)
+        bow_corpus.append(vector)
+    # bow_corpus = [dictionary.doc2bow(token, allow_update=True) for token in tokenized_paragraphs]
     return bow_corpus
 
 
-def build_dictionary(processed_files):
+def build_dictionary(tokenized_paragraphs):
     # 2.1 - Build the dictionary
-    dictionary = gensim.corpora.Dictionary(processed_files)
+    dictionary = gensim.corpora.Dictionary(tokenized_paragraphs)
 
     # Retrieve and filter stopwords
     stopwords = retrieve_stopwords()
@@ -146,152 +98,130 @@ def build_dictionary(processed_files):
     return dictionary
 
 
-def retrieve_stopwords():
-    # File downloaded from TextFixer: https://www.textfixer.com/tutorials/common-english-words.php
-    file = open('./common-english-words.txt', 'r')
-    stopwords = []
-    for rows in file:
-        row = rows.rstrip().split(',')
-        stopwords += row
-    return stopwords
-
-
 # ----- PART 3: Retrieval models ------
 
-def tfidf_conversion(processed_files, dictionary):
-    corpus = to_bow(processed_files, dictionary)
+def initialize_tfidf(bow_corpus):
+    return gensim.models.TfidfModel(bow_corpus, normalize=True)
+
+
+def initialize_lsi(tfidf_corpus, dictionary):
+    return gensim.models.LsiModel(tfidf_corpus, id2word=dictionary, num_topics=100)
+
+
+def construct_matrix_similarity(corpus):
+    return gensim.similarities.MatrixSimilarity(corpus)
+
+
+def get_top_similarities(index, lsi_vec):
+    sims = index[lsi_vec]
+    return sorted(enumerate(sims), key=lambda kv: -kv[1])[:3]
+
+
+def similarity(tokenized_query, tokenized_paragraphs, paragraphs):
+    # 2.1 - Build dictionary
+    dictionary = build_dictionary(tokenized_paragraphs)
+
+    # 2.2 - Map paragraphs to Bag-of-Words
+    bow_corpus = to_bow(tokenized_paragraphs, dictionary)
+
+    # -- TD-IDF conversion --
     # 3.1 - Initialize TD-IDF model using Bag-of-Words
-    tfidf_model = gensim.models.TfidfModel(corpus, normalize=True)
+    tfidf_model = initialize_tfidf(bow_corpus)
     # 3.2 - Map bow into TF-IDF weights
-    tfidf_corpus = tfidf_model[corpus]
+    tfidf_corpus = tfidf_model[bow_corpus]
 
-    return tfidf_corpus
-
-
-def retrieve_lsi(dictionary, tfidf_corpus):
+    # --- LSI model ---
     # 3.4 - Initialize LSI model using the TD-IDF corpus
-    lsi_model = gensim.models.LsiModel(tfidf_corpus, id2word=dictionary, num_topics=100)  # Create LSI Model
+    lsi_model = initialize_lsi(tfidf_corpus, dictionary)
     lsi_corpus = lsi_model[tfidf_corpus]
 
-    # 3.5 - Printing first 3 LSI topics
-    # result = lsi_model.show_topics(3)
-    # print(result)
+    # ---- Model similarity ---
+    # 3.3 - Construct MatrixSimilarity object of the LSI corpus
+    tfidf_index = construct_matrix_similarity(tfidf_corpus)
+    lsi_index = construct_matrix_similarity(lsi_corpus)
 
-    return lsi_corpus
+    # 3.5 - Printing first 3 LSI topics
+    topics = lsi_model.show_topics(3)
+    formatted_topics = []
+    print('\n', 'Task 3.5 - Print the first 3 LSI topics.', '\n')
+    for topic_id, terms in topics:
+        formatted_topic = f"Topic {topic_id}: {terms}"
+        formatted_topics.append(formatted_topic)
+    print(formatted_topics)
+
+    # 4.2 - Convert the query to LSI space and report TF-IDF weights
+    query_vec = dictionary.doc2bow(tokenized_query)
+    query_tfidf = tfidf_model[query_vec]
+
+    # Formatting TF-IDF output
+    formatted_tfidf = {dictionary[id_]: f"{weight:.2f}" for id_, weight in query_tfidf}
+    formatted_tfidf_str = ', '.join([f"{k}: {v}" for k, v in formatted_tfidf.items()])
+    print(f"Task 4.2 - TF-IDF weights for query: ({formatted_tfidf_str})")
+
+    # Perform similarity query against the TF-IDF corpus
+    sims_tfidf = tfidf_index[query_tfidf]
+    doc2sim_tfidf = sorted(enumerate(sims_tfidf), key=lambda kv: -kv[1])[:3]
+
+    # 4.3 - Report top 3 most relevant paragraphs for the query
+    print('\n', "Task 4.3 - Report top 3 most relevant paragraphs for the query")
+    for doc in doc2sim_tfidf:
+        text = paragraphs[doc[0]].split('\n') # Retrieve paragraph from the original, cleaned list
+        print('\n', 'Paragraph:', doc[0], '\n')
+        if len(text) < 5:
+            for i in range(len(text)):
+                print(text[i])
+        else:
+            for i in range(5):
+                print(text[i])
+
+    # 4.4
+    print('\n', 'Task 4.4a - Report top 3 topics with the most significant (with the largest absolute values) weights')
+    lsi_vec = lsi_model[query_tfidf]
+    lsi_results = (sorted(lsi_vec, key=lambda kv: -abs(kv[1]))[:3])
+    for doc in lsi_results:
+        print('\n', 'Topic: ', doc[0], '\n', lsi_model.show_topic(doc[0]))
+
+    sims_lsi = lsi_index[lsi_vec]
+    doc2sim_lsi = sorted(enumerate(sims_lsi), key=lambda kv: -kv[1])[:3]
+
+    print('\n', "Task 4.4b - Top 3 most relevant paragraphs according to LSI model", '\n')
+    for doc in doc2sim_lsi:
+        text = paragraphs[doc[0]].split('\n') # Retrieve paragraph from the original, cleaned list
+        print('\n', "Paragraph: ", doc[0], '\n')
+        if len(text) < 5:
+            for i in range(len(text)):
+                print(text[i])
+        else:
+            for i in range(5):
+                print(text[i])
 
 
 # ----- PART 4: Querying ------
 
-def similarity(query, collection):
-    # 2.1 - Build dictionary
-    dictionary = build_dictionary(collection)
-
-    # 2.2 - Map paragraphs to Bag-of-Words
-    corpus = to_bow(collection, dictionary)
-
-    # -- TD-IDF conversion --
-    # 3.1 - Initialize TD-IDF model using Bag-of-Words
-    tfidf_model = gensim.models.TfidfModel(corpus, normalize=True)
-    # 3.2 - Map bow into TF-IDF weights
-    tfidf_corpus = tfidf_model[corpus]
-
-    # --- LSI model ---
-    # 3.4 - Initialize LSI model using the TD-IDF corpus
-    lsi_model = gensim.models.LsiModel(tfidf_corpus, id2word=dictionary, num_topics=100)  # Create LSI Model
-    lsi_corpus = lsi_model[tfidf_corpus]
-
-    # 4.2 - Convert the query to LSI space
-    query_vec = dictionary.doc2bow(query)
-    lsi_vec = lsi_model[query_vec]
-
-    # ---- Model similarity ---
-    # 3.3 - Construct MatrixSimilarity object of the LSI corpus
-    index = gensim.similarities.MatrixSimilarity(lsi_corpus)
-
-    # Perform similarity query against the corpus
-    sims = index[lsi_vec]
-    sims = sorted(enumerate(sims), key=lambda kv: -kv[1])[:3]
-
-    # Report top 3 most relevant paragraphs for the query
-    count = 0
-    for doc_position, doc_score in sims:
-        paragraph = retrieve_paragraph(doc_position)
-        print(f"[paragraph {doc_position}] \n {paragraph} \n ")
-        count += 1
-        if count == 3:
-            break
-
-
-def retrieve_paragraph(doc_position):
-    """
-    Retrieves the original, unprocessed paragraph.
-    """
-    directory_path = "./"
-    files_in_directory = os.listdir()
-    collection = [f for f in files_in_directory if
-                  os.path.isfile(os.path.join(directory_path, f)) and f.startswith("paragraph_") and f.endswith(
-                      ".txt")]
-
-    for i, file in enumerate(collection):
-        if i == doc_position:
-            with open(os.path.join(directory_path, file), 'r', encoding='utf-8') as f:
-                # Read the first five lines - doesn't work
-                content = f.read()
-                return content
-    return None
-
-
 def preprocess_query(query):
-    """
-    Converts a query to a file, and tokenizes file.
-    """
-    filename = query_to_file(query)
-    directory_path = "./"
-    if os.path.isfile(os.path.join(directory_path, filename)):
-        processed_query = filename
-    else:
-        processed_query = ''
+    # 4.1 - Preprocess query to remove punctuation, tokenize and stem
+    ps = nltk.stem.PorterStemmer()
+    tokenizer = RegexpTokenizer(r'\w+')
+    tokenized_query = tokenizer.tokenize(query.lower())
+    stemmed_query = [ps.stem(token) for token in tokenized_query]
 
-    return processed_query
-
-
-def query_to_file(query):
-    """
-    Writes query to a file and returns the filename query.txt
-    """
-    filename = "query.txt"
-    mode = "w" if os.path.exists(filename) else "x"
-
-    with open(filename, mode) as query_file:
-        query_file.write(query)
-
-    return filename
+    return stemmed_query
 
 
 def main():
     filename = "pg3300.txt"
     target_word = "Gutenberg"
-    directory_path = "./"
     query1 = "What is the function of money?"
     query2 = "How taxes influence Economics?"
-    # processor = DataProcessing(input_filename)
-
-    # ONLY FOR TESTING - Remove all generated files
-    # delete_all_files()
 
     # STEP 1 - Partition all paragraphs into documents
-    # partition(input_filename)
+    paragraphs = partition(filename)
 
     # STEP 2 - Filter collection
-    # processed_collection = preprocess_collection(target_word, directory_path)
-    # processed_query = preprocess_query(query2)
+    cleaned_paragraphs = preprocess_collection(target_word, paragraphs)
 
-    # STEP 3 - Tokenize
-    # tokenized_collection = tokenize(processed_collection)
-    # tokenized_query = tokenize_doc(processed_query)
-
-    # STEP 4 - Run similarity check
-    # similarity(tokenized_query, tokenized_collection)
+    # STEP 3 - Tokenize and run similarity check
+    similarity(preprocess_query(query2), tokenize_text(cleaned_paragraphs), cleaned_paragraphs)
 
 
 if __name__ == "__main__":
